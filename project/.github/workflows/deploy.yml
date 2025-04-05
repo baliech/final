@@ -7,22 +7,24 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          
-      - run: npm install
-      
-      - run: npm run build --if-present
-      
-      - run: npm start
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install dotenv --save  # Explicitly install dotenv
+
+      - name: Start server
+        run: npm start
         env:
-        STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-        PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
-        PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
-        PLAID_ENV: ${{ secrets.PLAID_ENV }}
-        PORT: ${{ secrets.PORT || 3000 }} 
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+          PLAID_ENV: ${{ secrets.PLAID_ENV }}
+          
