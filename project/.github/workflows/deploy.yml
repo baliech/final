@@ -12,17 +12,17 @@ jobs:
       # Checkout repository
       - uses: actions/checkout@v4
 
-      # Setup Node.js
+      # Setup Node.js with caching
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: 'npm'  # Caches node_modules for faster builds
 
-      # Install dependencies
+      # Install dependencies efficiently
       - name: Install dependencies
         run: |
-          npm ci         # Clean install (uses package-lock.json)
-          npm install dotenv  # Ensure dotenv is installed
+          npm ci  # Clean install from lockfile (faster and more reliable)
+          npm install dotenv  # Explicitly ensure dotenv is present
 
       # Start server with environment variables
       - name: Start server
