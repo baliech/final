@@ -9,17 +9,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout repository
       - uses: actions/checkout@v4
 
+      # Setup Node.js
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: 'npm'  # Caches node_modules for faster builds
 
+      # Install dependencies
       - name: Install dependencies
         run: |
-          npm install
-          npm install dotenv --save
+          npm ci         # Clean install (uses package-lock.json)
+          npm install dotenv  # Ensure dotenv is installed
 
+      # Start server with environment variables
       - name: Start server
         run: npm start
         env:
