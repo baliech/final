@@ -104,16 +104,16 @@ app.post('/api/complete-subscription', async (req, res) => {
     // Get customer details for billing info
     const customer = await stripe.customers.retrieve(customerId);
 
-    // Create payment method - updated to use 'token' instead of 'bank_account_token'
+    // CORRECTED PAYMENT METHOD CREATION
+    // Create payment method using the token directly (not nested under us_bank_account)
     const paymentMethod = await stripe.paymentMethods.create({
       type: 'us_bank_account',
       billing_details: {
         name: customer.name,
         email: customer.email
       },
-      us_bank_account: {
-        token: processorResponse.data.stripe_bank_account_token
-      }
+      // This is the key fix - token goes at the root level
+      token: processorResponse.data.stripe_bank_account_token
     });
 
     // Attach payment method to customer
@@ -128,7 +128,7 @@ app.post('/api/complete-subscription', async (req, res) => {
       },
     });
 
-    // Create subscription with additional verification settings
+    // Create subscription with verification settings
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: process.env.STRIPE_PRICE_ID }],
@@ -136,10 +136,7 @@ app.post('/api/complete-subscription', async (req, res) => {
         payment_method_types: ['us_bank_account'],
         payment_method_options: {
           us_bank_account: {
-            verification_method: 'instant',
-            financial_connections: {
-              permissions: ['payment_method']
-            }
+            verification_method: 'instant'
           }
         },
         save_default_payment_method: 'on_subscription'
@@ -159,11 +156,14 @@ app.post('/api/complete-subscription', async (req, res) => {
     console.error('Error completing subscription:', {
       message: error.message,
       stack: error.stack,
-      response: error.response?.data
+      raw: error.raw // Include Stripe's raw error response
     });
+    
     res.status(500).json({ 
       error: 'Failed to complete subscription',
-      details: error.response?.data || error.message 
+      details: error.message,
+      stripeError: error.raw?.message,
+      code: error.raw?.code
     });
   }
 });
