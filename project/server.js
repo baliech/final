@@ -25,7 +25,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Routes
+// Initiate Plaid Link
 app.post('/api/initiate-plaid-link', async (req, res) => {
   try {
     const { email, name } = req.body;
@@ -46,7 +46,7 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
         email_address: email,
         legal_name: name
       },
-      client_name: '🎉bitonpath',
+      client_name: 'Your App Name',
       products: ['auth'],
       country_codes: ['US'],
       language: 'en',
@@ -58,7 +58,7 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
     });
 
     res.json({
-      status: 'link_token_created',
+      status: 'success',
       linkToken: linkTokenResponse.data.link_token,
       customerId: customer.id
     });
@@ -71,7 +71,8 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
   }
 });
 
-app.post('/api/complete-subscription', async (req, res) => {
+// Complete ACH Setup
+app.post('/api/complete-ach-setup', async (req, res) => {
   try {
     const { customerId, publicToken, accountId } = req.body;
 
@@ -90,28 +91,26 @@ app.post('/api/complete-subscription', async (req, res) => {
       account_id: accountId,
     });
 
-    const customer = await stripe.customers.retrieve(customerId);
-
-    // CORRECT APPROACH: Create a bank account directly on the customer
+    // Add bank account directly to customer
     const bankAccount = await stripe.customers.createSource(customerId, {
       source: processorResponse.data.stripe_bank_account_token
     });
 
-    // Create payment method from the bank account
+    // Create payment method for future use
     const paymentMethod = await stripe.paymentMethods.create({
       type: 'us_bank_account',
       billing_details: {
-        name: customer.name,
-        email: customer.email
+        name: bankAccount.account_holder_name || 'Customer',
+        email: (await stripe.customers.retrieve(customerId)).email
       },
       us_bank_account: {
-        account_holder_type: 'individual',
-        account_number: '*****' + bankAccount.last4,
+        account_holder_type: bankAccount.account_holder_type || 'individual',
+        account_number: '••••' + bankAccount.last4,
         routing_number: bankAccount.routing_number
       }
     });
 
-    // Attach payment method
+    // Attach payment method to customer
     await stripe.paymentMethods.attach(paymentMethod.id, {
       customer: customerId,
     });
@@ -123,39 +122,24 @@ app.post('/api/complete-subscription', async (req, res) => {
       },
     });
 
-    // Create subscription
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: process.env.STRIPE_PRICE_ID }],
-      payment_settings: {
-        payment_method_types: ['us_bank_account'],
-        payment_method_options: {
-          us_bank_account: {
-            verification_method: 'instant'
-          }
-        }
-      },
-      expand: ['latest_invoice.payment_intent'],
-    });
-
     res.json({
       status: 'success',
-      subscriptionId: subscription.id,
-      paymentMethodId: paymentMethod.id,
+      customerId: customerId,
       bankAccountId: bankAccount.id,
-      customerId: customerId
+      paymentMethodId: paymentMethod.id,
+      last4: bankAccount.last4,
+      bankName: bankAccount.bank_name,
+      accountHolderName: bankAccount.account_holder_name
     });
   } catch (error) {
-    console.error('Subscription error:', {
+    console.error('ACH setup error:', {
       message: error.message,
       code: error.code,
-      type: error.type,
-      raw: error.raw
+      type: error.type
     });
     res.status(500).json({ 
-      error: 'Failed to complete subscription',
-      details: error.message,
-      stripeError: error.raw?.message
+      error: 'Failed to complete ACH setup',
+      details: error.message
     });
   }
 });
