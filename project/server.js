@@ -30,21 +30,36 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
   try {
     const { email, name } = req.body;
 
+    // Validate input
+    if (!email || !name) {
+      return res.status(400).json({ error: 'Email and name are required' });
+    }
+
     // Create Stripe customer
     const customer = await stripe.customers.create({
       email,
-      name
+      name,
+      metadata: {
+        signup_date: new Date().toISOString()
+      }
     });
 
     // Create Plaid link token
     const linkTokenResponse = await plaidClient.linkTokenCreate({
       user: {
-        client_user_id: `${customer.id}-${email.replace(/[^a-zA-Z0-9]/g, "")}`,
+        client_user_id: `${customer.id}-${Date.now()}`,
+        email_address: email,
+        legal_name: name
       },
-      client_name: 'Your App Name',
+      client_name: '🎉bitonpath',
       products: ['auth'],
       country_codes: ['US'],
       language: 'en',
+      account_filters: {
+        depository: {
+          account_subtypes: ['checking', 'savings']
+        }
+      }
     });
 
     res.json({
@@ -54,14 +69,26 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
       message: 'Use this link_token to initialize Plaid Link in your frontend'
     });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error initiating Plaid link:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    res.status(500).json({ 
+      error: 'Failed to initiate Plaid link',
+      details: error.response?.data || error.message 
+    });
   }
 });
 
 app.post('/api/complete-subscription', async (req, res) => {
   try {
     const { customerId, publicToken, accountId } = req.body;
+
+    // Validate input
+    if (!customerId || !publicToken || !accountId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
     // Exchange public token for access token
     const exchangeResponse = await plaidClient.itemPublicTokenExchange({
@@ -74,14 +101,18 @@ app.post('/api/complete-subscription', async (req, res) => {
       account_id: accountId,
     });
 
-    // Create payment method - UPDATED APPROACH
+    // Get customer details for billing info
+    const customer = await stripe.customers.retrieve(customerId);
+
+    // Create payment method - updated to use 'token' instead of 'bank_account_token'
     const paymentMethod = await stripe.paymentMethods.create({
       type: 'us_bank_account',
       billing_details: {
-        name: 'Customer Name' // You should get this from your customer record
+        name: customer.name,
+        email: customer.email
       },
       us_bank_account: {
-        token: processorResponse.data.stripe_bank_account_token // Use 'token' instead of 'bank_account_token'
+        token: processorResponse.data.stripe_bank_account_token
       }
     });
 
@@ -97,12 +128,21 @@ app.post('/api/complete-subscription', async (req, res) => {
       },
     });
 
-    // Create subscription
+    // Create subscription with additional verification settings
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: process.env.STRIPE_PRICE_ID }],
       payment_settings: {
         payment_method_types: ['us_bank_account'],
+        payment_method_options: {
+          us_bank_account: {
+            verification_method: 'instant',
+            financial_connections: {
+              permissions: ['payment_method']
+            }
+          }
+        },
+        save_default_payment_method: 'on_subscription'
       },
       expand: ['latest_invoice.payment_intent'],
     });
@@ -111,41 +151,27 @@ app.post('/api/complete-subscription', async (req, res) => {
       status: 'success',
       subscriptionId: subscription.id,
       paymentMethodId: paymentMethod.id,
-      customerId: customerId
+      customerId: customerId,
+      invoiceStatus: subscription.latest_invoice?.status,
+      paymentIntentStatus: subscription.latest_invoice?.payment_intent?.status
     });
   } catch (error) {
-    console.error('Detailed Error:', {
+    console.error('Error completing subscription:', {
       message: error.message,
       stack: error.stack,
       response: error.response?.data
     });
     res.status(500).json({ 
-      error: error.message,
-      details: error.response?.data 
+      error: 'Failed to complete subscription',
+      details: error.response?.data || error.message 
     });
   }
 });
 
-    // Create subscription
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: process.env.STRIPE_PRICE_ID }],
-      payment_settings: {
-        payment_method_types: ['us_bank_account'],
-      },
-      expand: ['latest_invoice.payment_intent'],
-    });
-
-    res.json({
-      status: 'success',
-      subscriptionId: subscription.id,
-      paymentMethodId: paymentMethod.id,
-      customerId: customerId
-    });
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: error.message });
-  }
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(port, () => {
