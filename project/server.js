@@ -90,28 +90,15 @@ app.post('/api/complete-subscription', async (req, res) => {
       account_id: accountId,
     });
 
-    const customer = await stripe.customers.retrieve(customerId);
-
-    // CORRECT APPROACH: Create a bank account directly on the customer
-    const bankAccount = await stripe.customers.createSource(customerId, {
-      source: processorResponse.data.stripe_bank_account_token
-    });
-
-    // Create payment method from the bank account
+    // Create payment method directly from the processor token
     const paymentMethod = await stripe.paymentMethods.create({
       type: 'us_bank_account',
-      billing_details: {
-        name: customer.name,
-        email: customer.email
-      },
       us_bank_account: {
-        account_holder_type: 'individual',
-        account_number: '*****' + bankAccount.last4,
-        routing_number: bankAccount.routing_number
+        token: processorResponse.data.stripe_bank_account_token
       }
     });
 
-    // Attach payment method
+    // Attach payment method to customer
     await stripe.paymentMethods.attach(paymentMethod.id, {
       customer: customerId,
     });
@@ -142,7 +129,6 @@ app.post('/api/complete-subscription', async (req, res) => {
       status: 'success',
       subscriptionId: subscription.id,
       paymentMethodId: paymentMethod.id,
-      bankAccountId: bankAccount.id,
       customerId: customerId
     });
   } catch (error) {
