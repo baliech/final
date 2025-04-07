@@ -74,12 +74,15 @@ app.post('/api/complete-subscription', async (req, res) => {
       account_id: accountId,
     });
 
-    // Create payment method
+    // Create payment method - UPDATED APPROACH
     const paymentMethod = await stripe.paymentMethods.create({
       type: 'us_bank_account',
-      us_bank_account: {
-        bank_account_token: processorResponse.data.stripe_bank_account_token,
+      billing_details: {
+        name: 'Customer Name' // You should get this from your customer record
       },
+      us_bank_account: {
+        token: processorResponse.data.stripe_bank_account_token // Use 'token' instead of 'bank_account_token'
+      }
     });
 
     // Attach payment method to customer
@@ -93,6 +96,35 @@ app.post('/api/complete-subscription', async (req, res) => {
         default_payment_method: paymentMethod.id,
       },
     });
+
+    // Create subscription
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: process.env.STRIPE_PRICE_ID }],
+      payment_settings: {
+        payment_method_types: ['us_bank_account'],
+      },
+      expand: ['latest_invoice.payment_intent'],
+    });
+
+    res.json({
+      status: 'success',
+      subscriptionId: subscription.id,
+      paymentMethodId: paymentMethod.id,
+      customerId: customerId
+    });
+  } catch (error) {
+    console.error('Detailed Error:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data 
+    });
+  }
+});
 
     // Create subscription
     const subscription = await stripe.subscriptions.create({
