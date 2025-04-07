@@ -319,7 +319,7 @@
       document.getElementById('troubleshooting').style.display = 'block';
     }
 
-    const API_URL = 'https://final-2-0b7g.onrender.com/api';
+    const API_URL = 'https://final-2-0b7g.onrender.com';
     
     let customerData = {
       customerId: null
@@ -340,7 +340,7 @@
       try {
         await loadPlaidScript();
         
-        const linkResponse = await fetch(`${API_URL}/initiate-plaid-link`, {
+        const linkResponse = await fetch(`${API_URL}/api/initiate-plaid-link`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -388,7 +388,7 @@
     
     async function completeSubscription(publicToken, accountId) {
       try {
-        const response = await fetch(`${API_URL}/complete-subscription`, {
+        const response = await fetch(`${API_URL}/api/complete-subscription`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
