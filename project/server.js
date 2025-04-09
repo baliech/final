@@ -71,86 +71,88 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
   }
 });
 
-// app.post('/api/complete-subscription', async (req, res) => {
-//   try {
-//     const { customerId, publicToken, accountId } = req.body;
-
-//     if (!customerId || !publicToken || !accountId) {
-//       return res.status(400).json({ error: 'Missing required fields' });
-//     }
-
-//     // Exchange public token for access token
-//     const exchangeResponse = await plaidClient.itemPublicTokenExchange({
-//       public_token: publicToken
-//     });
-
-//     // Get processor token
-//     const processorResponse = await plaidClient.processorStripeBankAccountTokenCreate({
-//       access_token: exchangeResponse.data.access_token,
-//       account_id: accountId,
-//     });
-
-//     // Retrieve customer details
-//     const customer = await stripe.customers.retrieve(customerId);
-
-//     // Correct approach: Create payment method using the token directly
-//     const paymentMethod = await stripe.paymentMethods.create({
-//       type: 'us_bank_account',
-//       billing_details: {
-//         name: customer.name,
-//         email: customer.email
-//       },
-//       // This is the correct way to use the processor token
-//       bank_account: processorResponse.data.stripe_bank_account_token
-//     });
-
-//     // Attach payment method to customer
-//     await stripe.paymentMethods.attach(paymentMethod.id, {
-//       customer: customerId,
-//     });
-
-//     // Set as default payment method
-//     await stripe.customers.update(customerId, {
-//       invoice_settings: {
-//         default_payment_method: paymentMethod.id,
-//       },
-//     });
-
-//     // Create subscription
-//     const subscription = await stripe.subscriptions.create({
-//       customer: customerId,
-//       items: [{ price: process.env.STRIPE_PRICE_ID }],
-//       payment_settings: {
-//         payment_method_types: ['us_bank_account'],
-//         payment_method_options: {
-//           us_bank_account: {
-//             verification_method: 'instant'
-//           }
-//         }
-//       },
-//       expand: ['latest_invoice.payment_intent'],
-//     });
-
-//     res.json({
-//       status: 'success',
-//       subscriptionId: subscription.id,
-//       paymentMethodId: paymentMethod.id,
-//       customerId: customerId
-//     });
-//   } catch (error) {
-//     console.error('Subscription error:', {
-//       message: error.message,
-//       code: error.code,
-//       type: error.type,
-//       raw: error.raw
-//     });
-//     res.status(500).json({ 
-//       error: 'Failed to complete subscription',
-//       details: error.message,
-//       stripeError: error.raw?.message
-//     });
-//   }
-// });
+app.post('/api/complete-subscription', async (req, res) => {
+  try {
+    const { customerId, publicToken, accountId } = req.body;
+    if (!customerId || !publicToken || !accountId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Exchange public token for access token
+    const exchangeResponse = await plaidClient.itemPublicTokenExchange({
+      public_token: publicToken
+    });
+    
+    // Get processor token
+    const processorResponse = await plaidClient.processorStripeBankAccountTokenCreate({
+      access_token: exchangeResponse.data.access_token,
+      account_id: accountId,
+    });
+    
+    // Retrieve customer details
+    const customer = await stripe.customers.retrieve(customerId);
+    
+    // Create payment method using the processor token correctly
+    const paymentMethod = await stripe.paymentMethods.create({
+      type: 'us_bank_account',
+      billing_details: {
+        name: customer.name,
+        email: customer.email
+      },
+      us_bank_account: {
+        account_holder_type: 'individual',
+        account_token: processorResponse.data.stripe_bank_account_token
+      }
+    });
+    
+    // Attach payment method to customer
+    await stripe.paymentMethods.attach(paymentMethod.id, {
+      customer: customerId,
+    });
+    
+    // Set as default payment method
+    await stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethod.id,
+      },
+    });
+    
+    // Create subscription
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: process.env.STRIPE_PRICE_ID }],
+      payment_settings: {
+        payment_method_types: ['us_bank_account'],
+        payment_method_options: {
+          us_bank_account: {
+            verification_method: 'instant'
+          }
+        }
+      },
+      expand: ['latest_invoice.payment_intent'],
+    });
+    
+    res.json({
+      status: 'success',
+      subscriptionId: subscription.id,
+      paymentMethodId: paymentMethod.id,
+      customerId: customerId
+    });
+  } catch (error) {
+    console.error('Subscription error:', {
+      message: error.message,
+      code: error.code,
+      type: error.type,
+      raw: error.raw
+    });
+    
+    res.status(500).json({ 
+      error: 'Failed to complete subscription',
+      details: error.message,
+      stripeError: error.raw?.message
+    });
+  }
+});
 
 // Error handling
 app.use((err, req, res, next) => {
