@@ -90,19 +90,18 @@ app.post('/api/complete-subscription', async (req, res) => {
       account_id: accountId,
     });
 
-    // Retrieve customer details to get name and email
+    // Retrieve customer details
     const customer = await stripe.customers.retrieve(customerId);
 
-    // Create payment method with required billing details
+    // Correct approach: Create payment method using the token directly
     const paymentMethod = await stripe.paymentMethods.create({
       type: 'us_bank_account',
       billing_details: {
         name: customer.name,
         email: customer.email
       },
-      us_bank_account: {
-        token: processorResponse.data.stripe_bank_account_token
-      }
+      // This is the correct way to use the processor token
+      bank_account: processorResponse.data.stripe_bank_account_token
     });
 
     // Attach payment method to customer
