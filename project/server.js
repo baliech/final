@@ -73,7 +73,7 @@ app.post('/api/initiate-plaid-link', async (req, res) => {
 
 app.post('/api/complete-subscription', async (req, res) => {
   try {
-    const { customerId, publicToken, accountId } = req.body;
+    const { customerId, publicToken, accountId, accountType = 'checking' } = req.body;
     if (!customerId || !publicToken || !accountId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -83,15 +83,41 @@ app.post('/api/complete-subscription', async (req, res) => {
       public_token: publicToken
     });
     
+    const accessToken = exchangeResponse.data.access_token;
+    
+    // Get account information to determine if checking or savings
+    const accountsResponse = await plaidClient.accountsGet({
+      access_token: accessToken
+    });
+    
+    // Find the selected account
+    const selectedAccount = accountsResponse.data.accounts.find(account => account.account_id === accountId);
+    
+    // If no account found or not a depository account, use the provided account type or default to checking
+    const accountSubtype = selectedAccount && 
+                          selectedAccount.type === 'depository' && 
+                          selectedAccount.subtype ? 
+                          selectedAccount.subtype : accountType;
+    
     // Get processor token
     const processorResponse = await plaidClient.processorStripeBankAccountTokenCreate({
-      access_token: exchangeResponse.data.access_token,
+      access_token: accessToken,
       account_id: accountId,
     });
     
-    // Use the token to create a bank account source directly
+    // Create a bank account token with explicit account type
+    const bankAccountToken = processorResponse.data.stripe_bank_account_token;
+    
+    // Retrieve customer to pass metadata about account type
+    const customer = await stripe.customers.retrieve(customerId);
+    
+    // Create the bank account source with explicit account type when possible
     const bankAccount = await stripe.customers.createSource(customerId, {
-      source: processorResponse.data.stripe_bank_account_token
+      source: bankAccountToken,
+      metadata: {
+        account_type: accountSubtype,
+        plaid_account_id: accountId
+      }
     });
     
     // Set as default source
@@ -118,7 +144,8 @@ app.post('/api/complete-subscription', async (req, res) => {
       status: 'success',
       subscriptionId: subscription.id,
       sourceId: bankAccount.id,
-      customerId: customerId
+      customerId: customerId,
+      accountType: accountSubtype // Return the account type that was used
     });
   } catch (error) {
     console.error('Subscription error:', {
